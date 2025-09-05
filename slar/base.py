@@ -1,6 +1,10 @@
 from collections import OrderedDict
 import torch
 from torch import nn
+from torch.nn import init
+import torch.nn.functional as F
+from torch import Tensor
+import math
 import numpy as np
 
 class SineLayer(nn.Module):
@@ -9,7 +13,7 @@ class SineLayer(nn.Module):
     '''
     
     def __init__(self, in_features, out_features, bias=True,
-                 is_first=False, omega_0=30):
+                 is_first=False, omega_0=30.0):
         '''
         Parameters
         ----------
@@ -63,7 +67,7 @@ class SineLayer(nn.Module):
         intermediate = self.omega_0 * self.linear(input)
         return torch.sin(intermediate), intermediate
     
-    
+
 class Siren(nn.Module):
     '''
     A siren (whole) network implementation

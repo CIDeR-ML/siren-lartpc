@@ -4,92 +4,9 @@ from torch.utils.data import Dataset, DataLoader
 from slar.transform import partial_xform_vis
 from photonlib import PhotonLib
 
-class PhotonLibDataset(Dataset):
-    """
-    PhotonLibrary in the form of torch Dataset for training Siren.
-
-    """
-    
-    def __init__(self, cfg):
-        '''
-        Constructor
-
-        Parameters
-        ----------
-        cfg : dict
-            model configuration. Takes parameters for a function to transform visibilities to
-            a log scale, and also the loss weighting scheme and parameters.
-
-        Configuration
-        -------------
-        weight.method : str
-            Currently only supported mode is "vis" (stands for visibility-based weighting).
-            This means the high visibility voxels weights higher. The more the model makes
-            mistakes at high visibility voxels, the more it gets penalized (i.e. it guides
-            the model to learn high visibility voxels more). The logic behind is that the 
-            higher visibility voxels are more rare compred to lower visibility voxels.
-            Without weighting, the model can get high accuracy by simply predicting all 
-            voxels are dark.
-
-        weight.factor : float
-            A scale-factor to be multiplied to the visibility value.
-
-        weight.threshold : float
-            The voxels with weights (=visibility * weight.factor) below this threshold value
-            will have its weighting factor set to 1.0. 
-        '''
-        from photonlib import PhotonLib
-        self.plib = PhotonLib.load(cfg)
-        
-        # tranform visiblity in pseudo-log scale (default: False)
-        xform_params = cfg.get('transform_vis')
-        if xform_params:
-            print('[PhotonLibDataset] using log scale transformaion')
-            print('[PhotonLibDataset] transformation params',xform_params)
-
-        self.xform_vis, self.inv_xform_vis = partial_xform_vis(xform_params)
-   
-        self.visibilities = self.xform_vis(self.plib.vis)
-        
-        # transform the voxel ids to the normalized position (-1 to 1 scale along each axis)
-        vox_ids = torch.arange(len(self.plib.vis))
-        self.positions = self.plib.meta.norm_coord(self.plib.meta.voxel_to_coord(vox_ids))
-        #self.positions = self.plib.meta.voxel_to_coord(vox_ids)
-        
-        # set the loss weighting factor matrix
-        self.weights = torch.ones_like(self.visibilities)
-        weight_cfg = cfg['data']['dataset'].get('weight')
-        if weight_cfg:
-            print('[PhotonLibDataset] weighting the loss using',weight_cfg.get('method'))
-            print('[PhotonLibDataset] params:', weight_cfg)
-            if weight_cfg.get('method') == 'vis':
-                self.weights = self.plib.vis * weight_cfg.get('factor', 1.)
-                self.weights[self.weights<weight_cfg.get('threshold',1.e-8)] = 1.    
-            else:
-                raise NotImplementedError(f'The weight mode {weight_cfg.get("method")} is invalid.')
-
-        if 'device' in cfg['data']['dataset']:
-            self.to(cfg['data']['dataset']['device'])
-
-        
-    def __len__(self):
-        return len(self.plib.vis)
-
-    def to(self,device):
-        self.positions = self.positions.to(device)
-        self.visibilities = self.visibilities.to(device)
-        self.weights = self.weights.to(device)
-        torch.cuda.synchronize()
-        return self
-    
-    def __getitem__(self, idx):
-        output = dict(
-            position=self.positions[idx],
-            value=self.visibilities[idx],
-            weight=self.weights[idx],
-        )
-
-        return output
+import sys
+sys.path.append("/sdf/home/y/youngsam/sw/dune/siren-t")
+from gplib import TPhotonLib
 
 class PLibDataLoader:
     '''
@@ -150,18 +67,23 @@ class PLibDataLoader:
         '''
 
         # load plib to device
-        self._plib = PhotonLib.load(cfg).to(device)
+        self._plib = TPhotonLib.load(cfg).to(device)
         
         # get weighting scheme
-        weight_cfg = cfg.get('data',{}).get('dataset',{}).get('weight')
+        weight_cfg = cfg.get('data',{}).get('dataset',{}).get('weight', {})
         if weight_cfg:
             method = weight_cfg.get('method')
             if method == 'vis':
                 self.get_weight = self.get_weight_by_vis
                 print('[PLibDataLoader] weighting using', method)
                 print('[PLibDataLoader] params:', weight_cfg)
+            elif method == 'bivis':
+                self.get_weight = self.get_biweight_by_vis
+                print('[PLibDataLoader] weighting using', method)
+                print('[PLibDataLoader] params:', weight_cfg)
             else:
-                raise NotImplementedError(f'Weight method {method} is invalid')
+                self.get_weight = lambda vis : torch.tensor(1., device=device)
+                # raise NotImplementedError(f'Weight method {method} is invalid')
             self._weight_cfg = weight_cfg
         else:
             print('[PLibDataLoader] weight = 1')
@@ -183,19 +105,19 @@ class PLibDataLoader:
             # dataloader in batches
             self._batch_size = loader_cfg.get('batch_size', 1)
             self._shuffle = loader_cfg.get('shuffle', False)
-        else:
-            # returns the whole plib in a single batch
-            n_voxels = len(self._plib)
-            vox_ids = torch.arange(n_voxels, device=device)
+        # else:
+        # returns the whole plib in a single batch
+        n_voxels = len(self._plib)
+        vox_ids = torch.arange(n_voxels, device=device)
 
-            meta = self._plib.meta
-            pos = meta.norm_coord(meta.voxel_to_coord(vox_ids))
+        meta = self._plib.meta
+        pos = meta.norm_coord(meta.voxel_to_coord(vox_ids))
 
-            vis = self._plib.vis
-            w = self.get_weight(vis)
-            target = self.xform_vis(vis)
+        vis = self._plib.vis
+        w = self.get_weight(vis)
+        target = self.xform_vis(vis)
 
-            self._cache = dict(position=pos, value=vis, weight=w, target=target)
+        self._cache = dict(position=pos, value=vis, weight=w, target=target)
 
     @property
     def device(self):
@@ -213,7 +135,7 @@ class PLibDataLoader:
 
         Returns
         -------
-        w: trorch.Tensor
+        w: torch.Tensor
             Weight values with `w.shape == vis.shape`.
         '''
         factor = self._weight_cfg.get('factor', 1.)
@@ -221,7 +143,21 @@ class PLibDataLoader:
         w = vis * factor
         w[w<threshold] = 1.
         return w
+
+    def get_biweight_by_vis(self, vis):
+        factors = self._weight_cfg.get('factor', [1., 1.])
+        thresholds = self._weight_cfg.get('threshold', [1e-8, 1e-8])
+        idx_slices = self._weight_cfg.get('idx_slices', [[None], [None]])
         
+        w = torch.ones_like(vis)
+
+        min_weight = min(factors) * torch.min(vis[vis > 0])
+        for (factor, threshold, idx_slice) in zip(factors, thresholds, idx_slices):
+            w[:, slice(*idx_slice)] = vis[:, slice(*idx_slice)] * factor
+
+        w[w < threshold] = min_weight / 10
+        return w
+
     def __len__(self):
         '''
         Number of batches.
@@ -251,12 +187,18 @@ class PLibDataLoader:
                 sel = slice(b*self._batch_size, (b+1)*self._batch_size)
 
                 vox_ids = vox_list[sel]
-                pos = meta.norm_coord(meta.voxel_to_coord(vox_ids))
-                vis = self._plib[vox_ids]
-                w = self.get_weight(vis)
-                target = self.xform_vis(vis)
+                # pos = meta.norm_coord(meta.voxel_to_coord(vox_ids))
+                # vis = self._plib[vox_ids]
+                # w = self.get_weight(vis)
+                # target = self.xform_vis(vis)
+                output = dict(
+                    position=self._cache["position"][vox_ids],
+                    value=self._cache["value"][vox_ids],
+                    weight=self._cache["weight"][vox_ids],
+                    target=self._cache["target"][vox_ids],
+                )
 
-                output = dict(position=pos, value=vis, weight=w, target=target)
+                # output = dict(position=pos, value=vis, weight=w, target=target)
                 yield output
         else:
             yield self._cache
