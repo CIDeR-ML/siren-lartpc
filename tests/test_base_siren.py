@@ -14,7 +14,7 @@ def test_Siren_init(rng):
     first_omega_0 = 30
     hidden_omega_0 = 10
     outermost_linear = False
-    
+
     siren = Siren(in_features, hidden_features, hidden_layers, out_features, \
                   outermost_linear, first_omega_0, hidden_omega_0)
     
@@ -58,12 +58,28 @@ def test_Siren_forward(rng):
     assert y.shape == (1, out_features), 'output shape is not as expected'
     assert torch.all(torch.abs(y) >= -1), 'output is not bounded by [-1, 1]'
     assert torch.all(torch.abs(y) <= 1), 'output is not bounded by [-1, 1]'
-    
+
     x = torch.rand(10, in_features)
     y = siren(x)
     assert y.shape == (10, out_features), 'output shape is not as expected'
     assert torch.all(torch.abs(y) >= -1), 'output is not bounded by [-1, 1]'
     assert torch.all(torch.abs(y) <= 1), 'output is not bounded by [-1, 1]'
+
+
+def test_Siren_forward_preserves_input_gradients():
+    siren = Siren(
+        in_features=3,
+        hidden_features=8,
+        hidden_layers=2,
+        out_features=4,
+    )
+    x = torch.rand(5, 3, requires_grad=True)
+
+    siren(x).sum().backward()
+
+    assert x.grad is not None
+    assert x.grad.shape == x.shape
+    assert torch.isfinite(x.grad).all()
     
     
 def test_Siren_forward_with_activations(rng):
@@ -85,5 +101,3 @@ def test_Siren_forward_with_activations(rng):
     x = torch.rand(1, in_features, requires_grad=True)
     activations = siren.forward_with_activations(x, retain_grad=True)
     assert all(activation.requires_grad for activation in activations.values()), 'activations do not require grad'
-    
-    

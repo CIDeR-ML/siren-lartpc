@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slar"
+version = "0.2.0"
+description = "SIREN models for optical photon transport in liquid-argon TPCs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Carolyn Smith"},
+  {name = "Sam Young"},
+  {name = "Ka Vang Tsang"},
+  {name = "Kazuhiro Terao"},
+]
+keywords = ["LArTPC", "neutrino", "photon transport", "SIREN"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "fire",
+  "gdown",
+  "h5py",
+  "numpy",
+  "photonlib @ git+https://github.com/CIDeR-ML/photonlib.git@5f734f43218b65951001c7c02cc2f95767056da8",
+  "pyyaml",
+  "torch",
+  "tqdm",
+]
+
+[project.urls]
+Homepage = "https://github.com/CIDeR-ML/siren-lartpc"
+Documentation = "https://siren-lartpc.readthedocs.io/"
+Repository = "https://github.com/CIDeR-ML/siren-lartpc.git"
+Issues = "https://github.com/CIDeR-ML/siren-lartpc/issues"
+
+[tool.setuptools]
+packages = ["slar"]
+script-files = [
+  "bin/train-siren.py",
+  "bin/download_icarus_ckpt.sh",
+  "bin/update-siren-weight.py",
+  "bin/download_2x2_ckpt.sh",
+]
+
+[tool.setuptools.package-data]
+slar = ["config/*.yaml"]

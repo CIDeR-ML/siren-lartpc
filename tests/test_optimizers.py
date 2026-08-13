@@ -14,7 +14,7 @@ def factory_cfg(rng):
             'optimizer_class': 'Adam', 
             'optimizer_param': {'lr': lr},
             'scheduler_class': 'StepLR',
-            'scheduler_param': {'step_size': rng.integers(1, 10)},
+            'scheduler_param': {'step_size': int(rng.integers(1, 10))},
         },
         'model': {'ckpt_file': filename}
     }
@@ -31,7 +31,7 @@ def test_get_lr(rng):
 
 def test_load_optimizer_state(rng):
     opt = torch.optim.Adam([torch.randn(3, 5)])
-    epoch = rng.integers(0, 5000)
+    epoch = int(rng.integers(0, 5000))
     state = {'optimizer': opt.state_dict(), 'epoch': epoch}
     filename = writable_temp_file(suffix='.ckpt')
     torch.save(state, filename)
@@ -53,7 +53,7 @@ def test_optimizer_factory(factory_cfg, rng):
     assert get_lr(opt) == factory_cfg['train']['optimizer_param']['lr']
 
     opt = torch.optim.Adam([torch.randn(3, 5)])
-    true_epoch = rng.integers(0, 5000)
+    true_epoch = int(rng.integers(0, 5000))
     state = {'optimizer': opt.state_dict(), 'epoch': true_epoch}
 
     torch.save(state, factory_cfg['model']['ckpt_file'])

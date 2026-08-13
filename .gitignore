@@ -1,5 +1,8 @@
 _skbuild
+build/
+dist/
 *egg-info
+.pytest_cache/
 *~
 *.ipynb_checkpoints
 *.h5
@@ -8,4 +11,4 @@ _skbuild
 *.ipynb
 *.html
 __pycache__
-docs/build
+docs/build/
